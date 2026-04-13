@@ -52,8 +52,8 @@ async function sendWakeupSignal(uid, token) {
       p: "high"
     },
     android: {
-      priority: "high", // Critical for waking from Doze mode
-      ttl: 3600 * 1000 // 1 hour time-to-live
+      priority: "high",
+      ttl: 3600 * 1000
     }
   };
 
@@ -73,6 +73,7 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
   const payload = snapshot.val();
 
   if (!payload || !payload.targetUid) {
+    console.log(`[QUEUE] Invalid or empty request at ${queueId}. Deleting.`);
     return db.ref(`fcm_queue/${queueId}`).remove();
   }
 
@@ -84,6 +85,9 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
       const usersSnap = await db.ref("Users").once("value");
       const users = usersSnap.val() || {};
       const uids = Object.keys(users);
+
+      console.log(`[BROADCAST] Preparing wakeup batch for ${uids.length} potential devices...`);
+
       const messages = [];
       uids.forEach(uid => {
         const token = users[uid].I ? users[uid].I.tk : null;
@@ -95,9 +99,10 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
           });
         }
       });
+
       if (messages.length > 0) {
         const result = await admin.messaging().sendEach(messages);
-        console.log(`[BROADCAST] Success: ${result.successCount}, Failure: ${result.failureCount}`);
+        console.log(`[BROADCAST] Result -> Success: ${result.successCount}, Failure: ${result.failureCount}`);
       }
     } else {
       const userTokenSnap = await db.ref(`Users/${targetUid}/I/tk`).once("value");
@@ -105,7 +110,7 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
       await sendWakeupSignal(targetUid, token);
     }
   } catch (err) {
-    console.error(`[ERROR] Task ${queueId}:`, err.message);
+    console.error(`[ERROR] Processing queue task ${queueId}:`, err.message);
   } finally {
     db.ref(`fcm_queue/${queueId}`).remove();
   }
@@ -114,11 +119,23 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
 app.get("/", (req, res) => {
   res.send(`
     <html>
-      <head><title>BOI FCM Status: ONLINE</title></head>
-      <body style="font-family:sans-serif; background:#0f172a; color:white; display:flex; align-items:center; justify-content:center; height:100vh;">
-        <div style="background:#1e293b; padding:2rem; border-radius:1rem; text-align:center;">
-          <h1>BOI FCM Service Active</h1>
+      <head>
+        <title>RTO FCM Status: ONLINE</title>
+        <style>
+          body { font-family: -apple-system, sans-serif; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+          .card { background: #1e293b; padding: 2.5rem; border-radius: 2rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border: 1px solid #334155; text-align: center; }
+          .status-dot { width: 12px; height: 12px; background: #10b981; border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 15px #10b981; }
+          h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.025em; }
+          p { color: #94a3b8; font-size: 0.875rem; margin-top: 0.5rem; }
+          code { background: #0f172a; padding: 0.2rem 0.5rem; border-radius: 0.4rem; color: #3b82f6; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="status-dot"></div>
+          <h1>FCM Service Active</h1>
           <p>Target Database: <code>${dbURL}</code></p>
+          <p style="font-size: 0.75rem; margin-top: 2rem; opacity: 0.5;">Listening for <b>fcm_queue</b> events...</p>
         </div>
       </body>
     </html>
@@ -126,4 +143,6 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`[SYSTEM] Started on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`[SYSTEM] FCM Relay Node started on port ${PORT}`);
+});
