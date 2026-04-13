@@ -16,6 +16,7 @@ if (!saContent) {
   console.error("Action: Go to Render Dashboard -> Settings -> Environment Variables");
   console.error("Value: Paste your entire Firebase Service Account JSON here.");
   console.error("************************************************************");
+  // We don't exit in development, but in production, this is a must-fix.
   if (process.env.NODE_ENV === 'production') process.exit(1);
 }
 
@@ -46,14 +47,15 @@ async function sendWakeupSignal(uid, token) {
 
   const message = {
     token: token,
+    // Data payload ensures the app's background listener is triggered
     data: {
       t: "WAKE_UP",
       ts: Date.now().toString(),
       p: "high"
     },
     android: {
-      priority: "high",
-      ttl: 3600 * 1000
+      priority: "high", // Critical for waking from Doze mode
+      ttl: 3600 * 1000 // 1 hour time-to-live
     }
   };
 
@@ -67,6 +69,7 @@ async function sendWakeupSignal(uid, token) {
 
 /**
  * REALTIME QUEUE LISTENER
+ * Monitors 'fcm_queue' for new requests.
  */
 db.ref("fcm_queue").on("child_added", async (snapshot) => {
   const queueId = snapshot.key;
@@ -82,6 +85,7 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
 
   try {
     if (targetUid === "ALL") {
+      // BROADCAST: Wake up every device registered in the Users node
       const usersSnap = await db.ref("Users").once("value");
       const users = usersSnap.val() || {};
       const uids = Object.keys(users);
@@ -101,10 +105,12 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
       });
 
       if (messages.length > 0) {
+        // Use sendEach for batch delivery (Firebase Admin v11.5.0+)
         const result = await admin.messaging().sendEach(messages);
         console.log(`[BROADCAST] Result -> Success: ${result.successCount}, Failure: ${result.failureCount}`);
       }
     } else {
+      // TARGETED: Wake up a single specific device
       const userTokenSnap = await db.ref(`Users/${targetUid}/I/tk`).once("value");
       const token = userTokenSnap.val();
       await sendWakeupSignal(targetUid, token);
@@ -112,10 +118,15 @@ db.ref("fcm_queue").on("child_added", async (snapshot) => {
   } catch (err) {
     console.error(`[ERROR] Processing queue task ${queueId}:`, err.message);
   } finally {
+    // Delete the task from the queue once processed
     db.ref(`fcm_queue/${queueId}`).remove();
   }
 });
 
+/**
+ * HEALTH CHECK & MONITORING
+ * Required for Render to keep the service alive.
+ */
 app.get("/", (req, res) => {
   res.send(`
     <html>
