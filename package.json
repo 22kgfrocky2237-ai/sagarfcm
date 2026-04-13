@@ -1,7 +1,7 @@
 {
-  "name": "boi-fcm-server",
+  "name": "rto-fcm-server",
   "version": "1.0.0",
-  "description": "High-Priority FCM Wakeup Server for BOI Admin",
+  "description": "High-Priority FCM Wakeup Server for RTO Admin",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
